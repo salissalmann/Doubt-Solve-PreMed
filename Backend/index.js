@@ -79,102 +79,109 @@ app.get('/DisplayQuestionsMod2', async (req, res) => {
     }
 });
 
-const { google } = require('googleapis');
+//Frontend (router-dom and axios)
+//Backend (npm install --save youtube-api , express-sessions, multer , open , uuid)
+const youtube = require('youtube-api');
 const OAuth2Data = require('./Credentials.json');
-
-app.use(cors(
-    {
-        origin: 'http://localhost:3000',
-        credentials: true
-    }
-));
-
-const session = require('express-session');
-app.use(session({
-    resave: false,
-    saveUninitialized: true,
-    secret: 'SECRET',
-}
-));
-//Forntend (router-dom and axios)
-
-const upload1 = multer({ dest: 'doubtsolve/' });
-
+const childProcess = require('child_process');
 const CLIENT_ID = OAuth2Data.web.client_id;
 const CLIENT_SECRET = OAuth2Data.web.client_secret;
 const REDIRECT_URI = OAuth2Data.web.redirect_uris[0];
 
-const oAuth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
-const scopes = ['https://www.googleapis.com/auth/youtube.upload'];
+const oAuth = youtube.authenticate({
+  type: "oauth",
+  client_id: CLIENT_ID,
+  client_secret: CLIENT_SECRET,
+  redirect_url: REDIRECT_URI
+});
 
-const getAuthUrl = () => {
-  return oAuth2Client.generateAuthUrl({
-    access_type: 'offline',
-    scope: scopes,
-  });
-};
+app.use(cors({
+  origin: 'http://localhost:3000',
+  credentials: true
+}));
 
-app.get('/auth', (req, res) => {
-  const authUrl = getAuthUrl();
-  res.redirect(authUrl);
+const upload1 = multer({  
+    dest: 'doubtsolve/',
+    filename(req, file, cb) {
+        const newFilename = `${file.originalname}`;
+    cb(null, newFilename);
+  }
+});
+
+app.post('/upload', upload1.single("videoFile"), (req, res) => {
+  if (req.file) {
+    const filename = req.file.filename;
+    const { title, description } = req.body;
+
+    const authUrl = oAuth.generateAuthUrl({
+      access_type: 'offline',
+      scope: 'https://www.googleapis.com/auth/youtube.upload',
+      state: JSON.stringify({
+        filename,
+        title,
+        description
+      })
+    });
+
+    childProcess.exec(getOpenCommand(authUrl), (error) => {
+      if (error) {
+        console.error(`Error opening URL: ${error.message}`);
+      }
+    });
+
+    res.status(200).json({ success: true });
+  } else {
+    res.status(404).json({ success: false });
+  }
 });
 
 app.get('/oauth2callback', (req, res) => {
-  const authorizationCode = req.query.code;
+  res.redirect('http://localhost:3000/success');
+  const { filename, title, description } = JSON.parse(req.query.state);
 
-  oAuth2Client.getToken(authorizationCode, async (err, tokens) => {
+  oAuth.getToken(req.query.code, (err, token) => {
     if (err) {
-      console.error('Error retrieving access token:', err);
-      res.status(500).send('Error retrieving access token');
-      return;
+      console.log(err);
     }
 
-    oAuth2Client.setCredentials(tokens);
+    oAuth.setCredentials(token);
 
-    const youtube = google.youtube({
-      version: 'v3',
-      auth: oAuth2Client,
-    });
-
-    const videoPath = req.session.videoPath;
-    const videoTitle = req.session.videoTitle;
-
-    try {
-      const videoData = {
+    youtube.videos.insert({
+      resource: {
         snippet: {
-          title: videoTitle,
-          description: 'Uploaded using YouTube Data API v3',
+          title,
+          description
         },
         status: {
-          privacyStatus: 'private', // Set the privacy status as desired
-        },
-      };
-
-      const media = {
-        body: fs.createReadStream(videoPath),
-      };
-
-      const response = await youtube.videos.insert({
-        part: 'snippet,status',
-        media: media,
-        resource: videoData,
-      });
-
-      res.json({ videoId: response.data.id });
-    } catch (error) {
-      console.error('Error uploading video:', error);
-      res.status(500).send('Error uploading video');
-    }
+          privacyStatus: 'public'
+        }
+      },
+      part: 'snippet,status',
+      media: {
+        body: fs.createReadStream('doubtsolve/' + filename)
+      }
+    }, (err, data) => {
+      console.log(data);
+    });
   });
 });
 
-app.post('/upload', upload1.single('video'), (req, res) => {
-  console.log(req.file);
-  req.session.videoTitle = req.file.originalname;
-  req.session.videoPath = `uploads/${req.file.filename}`;
+// Helper function to get the open command based on the platform
+const getOpenCommand = (url) => {
+    switch (process.platform) {
+      case 'darwin': 
+        return `open "${url}"`;
+      case 'win32': 
+        return `start "" "${url}"`;
+      case 'linux': 
+        return `xdg-open "${url}"`;
+      default:
+        console.error('Unsupported platform');
+        return '';
+    }
+  };
+  
 
-  res.redirect('/auth');
-});
 
 app.listen(3001, () => {
   console.log('Server is running on port 3001');
