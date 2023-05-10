@@ -27,7 +27,6 @@ export default function ExpertDashboard()
   const Submit = (e) =>
   {
     e.preventDefault()
-    console.log(Title,Description,File)
 
     const videoData = new FormData()
     videoData.append("title",Title)
@@ -37,6 +36,8 @@ export default function ExpertDashboard()
     axios.post("http://localhost:3001/upload",videoData)
     .then((res)=>
     {
+      console.log(res)
+      const videoUrl = res.data.videoUrl;
       console.log(res)
     }
     )

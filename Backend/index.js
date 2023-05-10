@@ -82,7 +82,7 @@ app.get('/DisplayQuestionsMod2', async (req, res) => {
 //Frontend (router-dom and axios)
 //Backend (npm install --save youtube-api , express-sessions, multer , open , uuid)
 const youtube = require('youtube-api');
-const OAuth2Data = require('./Credentials.json');
+const OAuth2Data = require('./Secret3.json');
 const childProcess = require('child_process');
 const CLIENT_ID = OAuth2Data.web.client_id;
 const CLIENT_SECRET = OAuth2Data.web.client_secret;
@@ -101,9 +101,9 @@ app.use(cors({
 }));
 
 const upload1 = multer({  
-    dest: 'doubtsolve/',
-    filename(req, file, cb) {
-        const newFilename = `${file.originalname}`;
+  dest: 'doubtsolve/',
+  filename(req, file, cb) {
+    const newFilename = `${file.originalname}`;
     cb(null, newFilename);
   }
 });
@@ -135,52 +135,61 @@ app.post('/upload', upload1.single("videoFile"), (req, res) => {
   }
 });
 
+
 app.get('/oauth2callback', (req, res) => {
-  res.redirect('http://localhost:3000/success');
   const { filename, title, description } = JSON.parse(req.query.state);
 
   oAuth.getToken(req.query.code, (err, token) => {
     if (err) {
       console.log(err);
-    }
+      res.status(500).json({ success: false });
+    } else {
+      oAuth.setCredentials(token);
 
-    oAuth.setCredentials(token);
-
-    youtube.videos.insert({
-      resource: {
-        snippet: {
-          title,
-          description
+      youtube.videos.insert({
+        resource: {
+          snippet: {
+            title,
+            description
+          },
+          status: {
+            privacyStatus: 'public'
+          }
         },
-        status: {
-          privacyStatus: 'public'
+        part: 'snippet,status',
+        media: {
+          body: fs.createReadStream('doubtsolve/' + filename)
         }
-      },
-      part: 'snippet,status',
-      media: {
-        body: fs.createReadStream('doubtsolve/' + filename)
-      }
-    }, (err, data) => {
-      console.log(data);
-    });
+      }, (err, data) => {
+        if (err) {
+          console.error(err);
+          res.status(500).json({ success: false });
+        } else {
+          const videoId = data.data.id;
+          const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+          console.log('YouTube video URL:', videoUrl);
+          res.status(200).json({ success: true, videoUrl });
+        }
+      });
+    }
   });
 });
 
-// Helper function to get the open command based on the platform
+
 const getOpenCommand = (url) => {
-    switch (process.platform) {
-      case 'darwin': 
-        return `open "${url}"`;
-      case 'win32': 
-        return `start "" "${url}"`;
-      case 'linux': 
-        return `xdg-open "${url}"`;
-      default:
-        console.error('Unsupported platform');
-        return '';
-    }
-  };
-  
+  switch (process.platform) {
+    case 'darwin': 
+      return `open "${url}"`;
+    case 'win32': 
+      return `start "" "${url}"`;
+    case 'linux': 
+      return `xdg-open "${url}"`;
+    default:
+      console.error('Unsupported platform');
+      return '';
+  }
+};
+
 
 
 app.listen(3001, () => {

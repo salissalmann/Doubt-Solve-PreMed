@@ -1,102 +1,89 @@
 import React, { useState, useEffect, useRef } from 'react';
-import RecordRTC from 'recordrtc/RecordRTC';
 import { saveAs } from 'file-saver';
 
 export default function RecordView() {
-
-
   const [recording, setRecording] = useState(false);
   const [recorder, setRecorder] = useState(null);
   const [recordedBlob, setRecordedBlob] = useState(null);
   const [webcamStream, setWebcamStream] = useState(null);
+  const videoRef = useRef(null);
 
+  const stopWebcam = async () => {
 
-  const stopWebcam = () => {
     if (webcamStream) {
- 
+      navigator.mediaDevices
+      .getUserMedia({ video: false })
       webcamStream.getTracks().forEach((track) => {
         track.stop();
       });
+      
       setWebcamStream(null);
     }
   };
-    
+  
   const startWebcam = () => {
-    navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
-      setWebcamStream(stream);
-    }).catch((error) => {
-      console.error('Error accessing webcam: ', error);
-    });
+    navigator.mediaDevices
+      .getUserMedia({ video: true })
+      
+      .then((stream) => {
+        setWebcamStream(stream);
+      })
+      .catch((error) => {
+        console.error('Error accessing webcam: ', error);
+      });
   };
-
-
-
 
   const startRecording = async () => {
     try {
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-      const webcamStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      const mergedStream = new MediaStream([...screenStream.getTracks(), ...webcamStream.getTracks()]);
-      const recorder = RecordRTC(mergedStream, {
-        type: 'video',
-        mimeType: 'video/mp4',
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true,
       });
-      setRecorder(recorder);
-      recorder.startRecording();
+      const webcamStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+
+      const mergedStream = new MediaStream();
+
+      screenStream.getTracks().forEach((track) => {
+        mergedStream.addTrack(track);
+      });
+
+      webcamStream.getTracks().forEach((track) => {
+        mergedStream.addTrack(track);
+      });
+
+      const mediaRecorder = new MediaRecorder(mergedStream);
+      const chunks = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'video/webm' });
+        setRecordedBlob(blob);
+        saveAs(blob, 'Video.webm');
+      };
+
+      mediaRecorder.start();
+      setRecorder(mediaRecorder);
       setRecording(true);
     } catch (error) {
       console.error('Error accessing screen: ', error);
     }
   };
-  
-  const stopRecording = async () => {
-    recorder.stopRecording(async () => {
-      const blob = recorder.getBlob();
-      setRecordedBlob(blob);
-      saveAs(blob, 'Video.mp4');
-      setRecording(false);
-  
-      const formData = new FormData();
-      formData.append('file', blob, 'Video.mp4');
-      formData.append('title', 'My Recorded Video');
-      formData.append(
-        'description',
-        'This is a recorded video uploaded from my app'
-      );
-      formData.append('privacyStatus', 'public'); 
-      
-      const YOUR_YOUTUBE_API_KEY = "AIzaSyD8VXZYL1iy4aTrxQloMj0ehRz6OoJQzBI"
-      const response = await fetch(
-        `https://www.googleapis.com/upload/youtube/v3/videos?part=snippet,status`,
-        {
-          mode: 'no-cors',
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${YOUR_YOUTUBE_API_KEY}`,
-          },
-          body: formData,
-        }
-      );
-  
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Video uploaded successfully:', data);
-      } else {
-        console.error('Error uploading video:', response.status);
-      }
-    });
-  };
-  
-      
-  const videoRef = useRef(null);
 
-  useEffect(() => {
-    navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
-      setWebcamStream(stream);
-    }).catch((error) => {
-      console.error('Error accessing webcam: ', error);
-    });
-  }, []);
+  const stopRecording = () => {
+    if (recorder && recorder.state === 'recording') {
+      recorder.stop();
+      setRecording(false);
+      recorder.stream.getTracks().forEach((track) => track.stop())
+    }
+  };
 
   useEffect(() => {
     if (webcamStream) {
@@ -211,7 +198,7 @@ export default function RecordView() {
   
       {webcamStream && (
         <div>
-          <video className='video' ref={videoRef} autoPlay />
+          <video className='video' ref={videoRef} autoPlay controls/>
         </div>
       )}
   
